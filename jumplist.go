@@ -26,7 +26,7 @@ type SkipList struct {
 	levelCursors  []*pointerColumn
 }
 
-func (list *SkipList) moveCursors(key float64) []*pointerColumn {
+func (list *SkipList) moveCursors(key float64) {
 	pointerColumn := &list.startPointers
 
 	for i := list.maxLevel - 1; i >= 0; i-- { //move from the top
@@ -38,15 +38,14 @@ func (list *SkipList) moveCursors(key float64) []*pointerColumn {
 		}
 		list.levelCursors[i] = pointerColumn //this is to save fingers
 	}
-	return list.levelCursors
 }
 
 func (list *SkipList) Set(key float64, value interface{}) *Column {
 	list.mutex.Lock()
 	defer list.mutex.Unlock()
 
-	resultPointers := list.moveCursors(key)
-	column := resultPointers[0].next[0]     //bottom layer
+	list.moveCursors(key)
+	column := list.levelCursors[0].next[0]  //bottom layer
 	if column != nil && column.key <= key { //check if successfully get
 		column.value = value
 		return column
@@ -57,8 +56,8 @@ func (list *SkipList) Set(key float64, value interface{}) *Column {
 
 	//set column next and previous column next
 	for i := range column.next { //remember that resultPointers[i].next[i] is the previous column
-		column.next[i] = resultPointers[i].next[i] // resultPointers[i].next[i] is the future next
-		resultPointers[i].next[i] = column         //update resultPointers[i].next[i] to new column
+		column.next[i] = list.levelCursors[i].next[i] // resultPointers[i].next[i] is the future next
+		list.levelCursors[i].next[i] = column         //update resultPointers[i].next[i] to new column
 	}
 
 	return column
@@ -91,12 +90,12 @@ func (list *SkipList) Del(key float64) *Column {
 	list.mutex.Lock()
 	defer list.mutex.Unlock()
 
-	results := list.moveCursors(key)
-	column := results[0].next[0]
+	list.moveCursors(key)
+	column := list.levelCursors[0].next[0]
 
 	if column != nil && column.key <= key { //value found
 		for k, v := range column.next { //found next column (which is results[0].next[0].next[k])
-			results[k].next[k] = v //modify current column to next-next
+			list.levelCursors[k].next[k] = v //modify current column to next-next
 		}
 
 		return column
