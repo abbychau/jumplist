@@ -19,7 +19,7 @@ func init() {
 
 	// Display the sizes of our basic structs
 	var sl SkipList
-	var el Element
+	var el Column
 	fmt.Printf("Structure sizes: SkipList is %v, Element is %v bytes\n", unsafe.Sizeof(sl), unsafe.Sizeof(el))
 }
 
@@ -69,8 +69,8 @@ func TestBasicIntCRUD(t *testing.T) {
 	list.Set(30, 9)
 	checkSanity(list, t)
 
-	list.Remove(0)
-	list.Remove(20)
+	list.Del(0)
+	list.Del(20)
 	checkSanity(list, t)
 
 	v1 := list.Get(10)
@@ -106,8 +106,10 @@ func TestBasicIntCRUD(t *testing.T) {
 }
 
 func TestMaxLevel(t *testing.T) {
-	list := NewWithLevel(DefaultMaxLevel + 1)
+	list := NewWithLevel(64)
 	list.Set(0, struct{}{})
+	list2 := NewWithLevel(1)
+	list2.Set(0, struct{}{})
 }
 
 func TestConcurrency(t *testing.T) {

@@ -7,156 +7,134 @@ import (
 	"time"
 )
 
-type elementPointers struct {
-	next []*Element
+type pointerColumn struct {
+	next []*Column
 }
 
-type Element struct {
-	elementPointers
+type Column struct {
+	pointerColumn
 	key   float64
 	value interface{}
 }
 
 type SkipList struct {
-	startPointers elementPointers
+	startPointers pointerColumn
 	maxLevel      int
-	randSource    rand.Source
-	probability   float64
-	probTable     []float64
+	randomSeed    rand.Source
+	probabilities []float64
 	mutex         sync.RWMutex
-	levelFingers  []*elementPointers //https://www.cs.au.dk/~gerth/papers/finger05.pdf //https://www.tutorialspoint.com/finger-searching-in-data-structure
+	levelCursors  []*pointerColumn
 }
 
-const (
-	DefaultMaxLevel    int     = 18 //e^18 = 65659969
-	DefaultProbability float64 = 1 / math.E
-)
-
-func (list *SkipList) moveFingers(key float64) []*elementPointers {
-	targets := &list.startPointers
+func (list *SkipList) moveCursors(key float64) []*pointerColumn {
+	pointerColumn := &list.startPointers
 
 	for i := list.maxLevel - 1; i >= 0; i-- { //move from the top
-		nextElement := targets.next[i]
+		nextColumn := pointerColumn.next[i]
 
-		for nextElement != nil && key > nextElement.key { //keep moving to the right
-			targets = &nextElement.elementPointers
-			nextElement = nextElement.next[i]
+		for nextColumn != nil && key > nextColumn.key {
+			pointerColumn = &nextColumn.pointerColumn //result if it is the end
+			nextColumn = nextColumn.next[i]           //keep move to the right
 		}
-		// if nextElement's key <= its next or it is already the end
-		list.levelFingers[i] = targets
+		list.levelCursors[i] = pointerColumn //this is to save fingers
 	}
-
-	return list.levelFingers
+	return list.levelCursors
 }
 
-// Set inserts a value in the list with the specified key, ordered by the key.
-// If the key exists, it updates the value in the existing node.
-// Returns a pointer to the new element.
-// Locking is optimistic and happens only after searching.
-func (list *SkipList) Set(key float64, value interface{}) *Element {
+func (list *SkipList) Set(key float64, value interface{}) *Column {
 	list.mutex.Lock()
+	defer list.mutex.Unlock()
 
-	resultPointers := list.moveFingers(key)
-	element := resultPointers[0].next[0]
-	if element != nil && element.key <= key {
-		element.value = value
-		return element
+	resultPointers := list.moveCursors(key)
+	column := resultPointers[0].next[0]     //bottom layer
+	if column != nil && column.key <= key { //check if successfully get
+		column.value = value
+		return column
 	}
 
-	element = &Element{
-		elementPointers: elementPointers{
-			next: make([]*Element, list.randLevel()),
-		},
-		key:   key,
-		value: value,
+	//not exists, so create a column
+	column = &Column{pointerColumn{make([]*Column, list.randLevel())}, key, value}
+
+	//set column next and previous column next
+	for i := range column.next { //remember that resultPointers[i].next[i] is the previous column
+		column.next[i] = resultPointers[i].next[i] // resultPointers[i].next[i] is the future next
+		resultPointers[i].next[i] = column         //update resultPointers[i].next[i] to new column
 	}
 
-	for i := range element.next {
-		element.next[i] = resultPointers[i].next[i]
-		resultPointers[i].next[i] = element
-	}
-
-	list.mutex.Unlock()
-	return element
+	return column
 }
 
-// Get finds an element by key. It returns element pointer if found, nil if not found.
-// Locking is optimistic and happens only after searching with a fast check for deletion after locking.
-func (list *SkipList) Get(key float64) *Element {
+func (list *SkipList) Get(key float64) *Column {
 	list.mutex.Lock()
+	defer list.mutex.Unlock()
 
-	prev := &list.startPointers
-	var next *Element
+	pointers := &list.startPointers
+	var next *Column
 
-	for i := list.maxLevel - 1; i >= 0; i-- {
-		next = prev.next[i]
+	for i := list.maxLevel - 1; i >= 0; i-- { // from the top level to the bottom level
+		next = pointers.next[i]
 
-		for next != nil && key > next.key {
-			prev = &next.elementPointers
+		for next != nil && key > next.key { // if key > storage of this column, move to the right
+			pointers = &next.pointerColumn
 			next = next.next[i]
-		}
+		} //move down again
 	}
 
-	if next != nil && next.key <= key {
+	if next != nil && next.key == key {
 		return next
 	}
 
-	list.mutex.Unlock()
 	return nil
 }
 
-// Remove deletes an element from the list.
-// Returns removed element pointer if found, nil if not found.
-// Locking is optimistic and happens only after searching with a fast check on adjacent nodes after locking.
-func (list *SkipList) Remove(key float64) *Element {
+func (list *SkipList) Del(key float64) *Column {
 	list.mutex.Lock()
 	defer list.mutex.Unlock()
-	prevs := list.moveFingers(key)
 
-	// found the element, remove it
-	if element := prevs[0].next[0]; element != nil && element.key <= key {
-		for k, v := range element.next {
-			prevs[k].next[k] = v
+	results := list.moveCursors(key)
+	column := results[0].next[0]
+
+	if column != nil && column.key <= key { //value found
+		for k, v := range column.next { //found next column (which is results[0].next[0].next[k])
+			results[k].next[k] = v //modify current column to next-next
 		}
 
-		return element
+		return column
 	}
 
 	return nil
 }
 
-func (list *SkipList) randLevel() (level int) {
-	// Our random number source only has Int63(), so we have to produce a float64 from it
-	// Reference: https://golang.org/src/math/rand/rand.go#L150
-	r := float64(list.randSource.Int63()) / (1 << 63)
+func (list *SkipList) randLevel() int {
+	r := float64(list.randomSeed.Int63()) / (1 << 63) // https://golang.org/src/math/rand/rand.go#L178
 
-	level = 1
-	for level < list.maxLevel && r < list.probTable[level] {
-		level++
+	for level, prob := range list.probabilities {
+		if r > prob {
+			return level + 1
+		}
 	}
-	return
+	return list.maxLevel
 }
 
-func NewWithLevel(maxLevel int) *SkipList {
-	if maxLevel < 1 || maxLevel > 64 {
-		panic("maxLevel for a SkipList must be a positive integer <= 64")
+func NewWithLevel(level int) *SkipList {
+	if level < 1 || level > 64 {
+		panic("level must be 1~64")
 	}
-	table := []float64{}
-	for i := 1; i <= maxLevel; i++ {
-		prob := math.Pow(DefaultProbability, float64(i-1))
-		table = append(table, prob)
+	probabilities := []float64{}
+	prob := 1.0
+	for i := 1; i <= level; i++ {
+		prob /= math.E
+		probabilities = append(probabilities, prob)
 	}
 	return &SkipList{
-		startPointers: elementPointers{next: make([]*Element, maxLevel)},
-		levelFingers:  make([]*elementPointers, maxLevel),
-		maxLevel:      maxLevel,
-		randSource:    rand.New(rand.NewSource(time.Now().UnixNano())),
-		probability:   DefaultProbability,
-		probTable:     table,
+		startPointers: pointerColumn{next: make([]*Column, level)},
+		levelCursors:  make([]*pointerColumn, level),
+		maxLevel:      level,
+		randomSeed:    rand.New(rand.NewSource(time.Now().UnixNano())),
+		probabilities: probabilities,
 	}
 }
 
-// New creates a new skip list with default parameters. Returns a pointer to the new list.
 func New() *SkipList {
-	return NewWithLevel(DefaultMaxLevel)
+	return NewWithLevel(18) //e^18 = 65659969
 }
