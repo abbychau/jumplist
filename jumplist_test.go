@@ -80,15 +80,15 @@ func TestBasicIntCRUD(t *testing.T) {
 	v5 := list.Get(90)
 	v6 := list.Get(0)
 
-	if v1 == nil || v1.value.(int) != 1 || v1.key != 10 {
+	if v1 == nil || v1.Value.(int) != 1 || v1.key != 10 {
 		t.Fatal(`wrong "10" value (expected "1")`, v1)
 	}
 
-	if v2 == nil || v2.value.(int) != 2 {
+	if v2 == nil || v2.Value.(int) != 2 {
 		t.Fatal(`wrong "60" value (expected "2")`)
 	}
 
-	if v3 == nil || v3.value.(int) != 9 {
+	if v3 == nil || v3.Value.(int) != 9 {
 		t.Fatal(`wrong "30" value (expected "9")`)
 	}
 
@@ -96,7 +96,7 @@ func TestBasicIntCRUD(t *testing.T) {
 		t.Fatal(`found value for key "20", which should have been deleted`)
 	}
 
-	if v5 == nil || v5.value.(int) != 5 {
+	if v5 == nil || v5.Value.(int) != 5 {
 		t.Fatal(`wrong "90" value`)
 	}
 

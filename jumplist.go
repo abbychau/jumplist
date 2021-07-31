@@ -14,7 +14,7 @@ type pointerColumn struct {
 type Column struct {
 	pointerColumn
 	key   float64
-	value interface{}
+	Value interface{}
 }
 
 type SkipList struct {
@@ -47,7 +47,7 @@ func (list *SkipList) Set(key float64, value interface{}) *Column {
 	list.moveCursors(key)
 	column := list.levelCursors[0].next[0]  //bottom layer
 	if column != nil && column.key <= key { //check if successfully get
-		column.value = value
+		column.Value = value
 		return column
 	}
 
